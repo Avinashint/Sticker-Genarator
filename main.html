@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Styled Sticker Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+
+<body>
+    <h1>Styled Sticker Generator</h1>
+
+    <label for="stickerDetails">Upload Sticker Details Excel:</label>
+    <input type="file" id="stickerDetails" accept=".xlsx"><br><br>
+
+
+    <button onclick="generateStickers()">Generate Styled Stickers PDF</button>
+
+    <script>
+        async function readExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                    resolve(jsonData);
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        async function generateStickers() {
+            const stickerDetailsFile = document.getElementById('stickerDetails').files[0];
+
+            if (!stickerDetailsFile) {
+                alert('Please upload both files.');
+                return;
+            }
+
+            const stickerDetails = await readExcelFile(stickerDetailsFile);
+
+            // Group the data by Packet No
+            const groupedByPacket = stickerDetails.reduce((acc, curr) => {
+                const packetNo = curr['Packet No'];
+                if (!acc[packetNo]) {
+                    acc[packetNo] = [];
+                }
+                acc[packetNo].push(curr);
+                return acc;
+            }, {});
+
+            // Initialize jsPDF
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF();
+
+            const today = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+});
+
+
+            Object.keys(groupedByPacket).forEach((packetNo, index) => {
+                if (index > 0) pdf.addPage();
+
+                const packetData = groupedByPacket[packetNo];
+
+                // Set font size for labels and values
+                pdf.setFontSize(12);
+
+                // Set padding and border dimensions
+                const borderX = 10;
+                const borderWidth = 190;
+                const fieldHeight = 10;  // Decreased height to remove vertical padding
+                const labelPaddingX = 5;
+                const valuePaddingX = 150; // Adjusted to justify content between label and value
+
+                // Bordered and justified Date field
+                pdf.rect(borderX, 5, borderWidth, fieldHeight);  // Border around Date field
+                pdf.text(`Date:`, borderX + labelPaddingX, 12);  // Label (Left)
+                pdf.text(`${today}`, valuePaddingX, 12, { align: 'right' }); // Value (Right)
+
+                // Bordered and justified Project Name field
+                pdf.rect(borderX, 15, borderWidth, fieldHeight);  // Border around Project Name field, aligned directly below Date
+                pdf.text(`Project Name:`, borderX + labelPaddingX, 22);  // Label (Left)
+                pdf.text(`${packetData[0]['Project Name']}`, valuePaddingX, 22, { align: 'right' }); // Value (Right)
+
+                // Bordered and justified Packet NO field
+                pdf.rect(borderX, 25, borderWidth, fieldHeight);  // Border around Packet NO field, aligned directly below Project Name
+                pdf.text(`Packet NO:`, borderX + labelPaddingX, 32);  // Label (Left)
+                pdf.text(`${packetNo}`, valuePaddingX, 32, { align: 'right' }); // Value (Right)
+
+                // Table headers with background color (yellow)
+                const startY = 40;
+                const rowHeight = 10;
+
+                // Define column widths
+                const colWidths = [30, 45, 35, 35, 35];
+                const startX = 10;
+
+                // Draw yellow background for the header
+                pdf.setFillColor(255, 255, 0); // Yellow color
+                pdf.rect(startX, startY - 5, 190, rowHeight, 'F'); // Rectangle for the header row background
+
+                // Header row positions
+                pdf.setFontSize(10);
+                pdf.text(`Module Posn`, startX + 5, startY);  // Adjusted X position
+                pdf.text(`Panel Name`, startX + colWidths[0] + 5, startY);
+                pdf.text(`Finished Length`, startX + colWidths[0] + colWidths[1] + 5, startY);
+                pdf.text(`Finished Width`, startX + colWidths[0] + colWidths[1] + colWidths[2] + 5, startY);
+                pdf.text(`Finished Thickness`, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 5, startY);
+
+                // Draw table borders for header row
+                pdf.line(startX, startY - 5, 200, startY - 5); // Top border
+                pdf.line(startX, startY + 5, 200, startY + 5); // Bottom border
+
+                // Draw vertical lines for header
+                let currentX = startX;
+                colWidths.forEach(width => {
+                    pdf.line(currentX, startY - 5, currentX, startY + 5); // Vertical line for each column
+                    currentX += width;
+                });
+                pdf.line(200, startY - 5, 200, startY + 5);  // Right border
+
+                // Add table data and borders for each row with text wrapping
+                packetData.forEach((row, rowIndex) => {
+                    const yPosition = startY + (rowIndex + 1) * rowHeight;
+
+                    // Wrap text inside each column if it's too long
+                    const modulePosn = pdf.splitTextToSize(`${row['Module Posn']}`, colWidths[0] - 5);
+                    const panelName = pdf.splitTextToSize(`${row['Panel Name']}`, colWidths[1] - 5);
+                    const finishedLength = pdf.splitTextToSize(`${row['Finished Length']}`, colWidths[2] - 5);
+                    const finishedWidth = pdf.splitTextToSize(`${row['Finished Width']}`, colWidths[3] - 5);
+                    const finishedThickness = pdf.splitTextToSize(`${row['Finished Thickness']}`, colWidths[4] - 5);
+
+                    // Text aligned inside each column with wrapping
+                    pdf.text(modulePosn, startX + 5, yPosition);
+                    pdf.text(panelName, startX + colWidths[0] + 5, yPosition);
+                    pdf.text(finishedLength, startX + colWidths[0] + colWidths[1] + 5, yPosition);
+                    pdf.text(finishedWidth, startX + colWidths[0] + colWidths[1] + colWidths[2] + 5, yPosition);
+                    pdf.text(finishedThickness, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 5, yPosition);
+
+                    // Draw row borders
+                    pdf.line(startX, yPosition - 5, 200, yPosition - 5); // Top border for each row
+                    pdf.line(startX, yPosition + 5, 200, yPosition + 5); // Bottom border for each row
+
+                    // Draw vertical lines for each row
+                    currentX = startX;
+                    colWidths.forEach(width => {
+                        pdf.line(currentX, yPosition - 5, currentX, yPosition + 5); // Vertical line for each column
+                        currentX += width;
+                    });
+                    pdf.line(200, yPosition - 5, 200, yPosition + 5);  // Right border
+                });
+            });
+
+            // Save the generated PDF
+            pdf.save('styled_grouped_stickers' + today + '.pdf');
+        }
+    </script>
+</body>
+
+</html>
